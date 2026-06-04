@@ -195,7 +195,18 @@ input.grow { flex: 1 1 220px; min-width: 0; }
 .grid-wrap .ag-row.clickable { cursor: pointer; }
 .grid-wrap .ag-pos { color: var(--green); }
 .grid-wrap .ag-neg { color: var(--red); }
-.grid-wrap .badge { display: inline-block; }
+.grid-wrap .ag-cell {
+  display: flex;
+  align-items: center;
+  line-height: 1.4;
+}
+.grid-wrap .ag-cell.ag-right-aligned-cell { justify-content: flex-end; }
+.grid-wrap .scorebar { width: 100%; }
+.grid-wrap .badge {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.5;
+}
 
 .topbar .row { flex-wrap: wrap; justify-content: flex-end; }
 .topbar > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }

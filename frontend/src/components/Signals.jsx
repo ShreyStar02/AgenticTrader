@@ -19,7 +19,7 @@ function ScoreCell({ value }) {
   const color = score >= 0 ? "var(--green)" : "var(--red)";
   const left = score >= 0 ? "50%" : `${50 - pct / 2}%`;
   return (
-    <div className="scorebar" title={score.toFixed(3)} style={{ marginTop: 14 }}>
+    <div className="scorebar" title={score.toFixed(3)}>
       <div style={{ left, width: `${pct / 2}%`, background: color }} />
       <div style={{ left: "50%", width: 1, background: "var(--muted)" }} />
     </div>
