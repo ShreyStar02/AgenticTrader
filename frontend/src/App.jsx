@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { api, isStatic } from "./api";
+import { cloud } from "./cloud";
 import StatCards from "./components/StatCards";
 import Holdings from "./components/Holdings";
 import Alerts from "./components/Alerts";
 import Signals from "./components/Signals";
 import FundsModal from "./components/FundsModal";
+import TokenModal from "./components/TokenModal";
 import SettingsBar from "./components/SettingsBar";
 import Briefing from "./components/Briefing";
 import NewsPanel from "./components/NewsPanel";
@@ -20,6 +22,8 @@ export default function App() {
   const [news, setNews] = useState([]);
   const [settings, setSettings] = useState(null);
   const [fundsModal, setFundsModal] = useState(null); // 'add' | 'withdraw' | null
+  const [tokenModal, setTokenModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
   const [toast, setToast] = useState(null);
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState("overview");
@@ -53,7 +57,47 @@ export default function App() {
     return () => clearInterval(id);
   }, [refresh, loadNews]);
 
+  // In static (cloud) mode, writes are performed by dispatching GitHub Actions
+  // workflows. If no token is saved yet, stash the action and prompt for one.
+  const runCloud = useCallback(async (action) => {
+    if (!cloud.hasToken()) {
+      setPendingAction(() => action);
+      setTokenModal(true);
+      return;
+    }
+    try {
+      await action();
+    } catch (e) {
+      const msg = String(e.message || e);
+      if (msg.startsWith("BAD_TOKEN") || msg === "NO_TOKEN") {
+        notify("GitHub key missing or invalid — please re-enter it.", "error");
+        setPendingAction(() => action);
+        setTokenModal(true);
+      } else {
+        notify(msg, "error");
+      }
+    }
+  }, []);
+
+  const onTokenSaved = async (tok) => {
+    setTokenModal(false);
+    const act = pendingAction;
+    setPendingAction(null);
+    if (tok && act) await runCloud(act);
+  };
+
   const handleFunds = async (kind, amount, password) => {
+    if (isStatic) {
+      return runCloud(async () => {
+        if (kind === "add") await cloud.addFunds(amount, password);
+        else await cloud.withdrawFunds(amount, password);
+        setFundsModal(null);
+        notify(
+          `${kind === "add" ? "Add" : "Withdraw"} ₹${amount} submitted — applying via GitHub Actions (~1–2 min); the dashboard refreshes automatically.`,
+          "success"
+        );
+      });
+    }
     try {
       if (kind === "add") await api.addFunds(amount, password);
       else await api.withdrawFunds(amount, password);
@@ -66,6 +110,12 @@ export default function App() {
   };
 
   const runNow = async () => {
+    if (isStatic) {
+      return runCloud(async () => {
+        await cloud.runAgent();
+        notify("Agent run queued via GitHub Actions (~1–2 min).", "success");
+      });
+    }
     setRunning(true);
     notify("Running agent cycle… (fetching live data)", "info");
     try {
@@ -94,26 +144,33 @@ export default function App() {
               Market {settings.market_open ? "Open" : "Closed"}
             </span>
           )}
-          {isStatic && <span className="tag">Cloud · Read-only</span>}
+          {isStatic && <span className="tag">Cloud</span>}
         </div>
         <div className="row">
-          {!isStatic && (
-            <>
-              <button className="ghost" onClick={() => setFundsModal("withdraw")}>Withdraw</button>
-              <button onClick={() => setFundsModal("add")}>+ Add Funds</button>
-              <button className="ghost" onClick={runNow} disabled={running}>
-                {running ? "Running…" : "Run Agent Now"}
-              </button>
-            </>
+          <button className="ghost" onClick={() => setFundsModal("withdraw")}>Withdraw</button>
+          <button onClick={() => setFundsModal("add")}>+ Add Funds</button>
+          <button className="ghost" onClick={runNow} disabled={running}>
+            {running ? "Running…" : "Run Agent Now"}
+          </button>
+          {isStatic && (
+            <button className="ghost" onClick={() => setTokenModal(true)} title="Manage the GitHub key used to control the cloud agent">
+              {cloud.hasToken() ? "🔑 Key set" : "🔑 Connect key"}
+            </button>
           )}
         </div>
       </div>
 
       {isStatic && (
         <div className="banner">
-          Live cloud dashboard — updates automatically during market hours via GitHub Actions.
-          To add/withdraw funds or change settings, run the <b>“manage”</b> workflow in the
-          repo’s <b>Actions</b> tab.
+          Live cloud dashboard — the agent runs automatically during market hours via
+          GitHub Actions. You can <b>add/withdraw funds</b> and <b>change settings</b> right
+          here; changes are applied through your GitHub key and take <b>~1–2 minutes</b> to
+          appear.{" "}
+          {!cloud.hasToken() && (
+            <a href="#" onClick={(e) => { e.preventDefault(); setTokenModal(true); }}>
+              Connect your GitHub key
+            </a>
+          )}
         </div>
       )}
 
@@ -121,11 +178,19 @@ export default function App() {
         <SettingsBar
           settings={settings}
           onRisk={async (r) => {
-            if (isStatic) return notify("Read-only: use the manage workflow to change risk", "error");
+            if (isStatic)
+              return runCloud(async () => {
+                await cloud.setRisk(r);
+                notify(`Risk → ${r} submitted (applying via GitHub Actions ~1–2 min).`, "success");
+              });
             await api.setRisk(r); notify(`Risk: ${r}`, "success"); refresh();
           }}
           onAutonomous={async (v) => {
-            if (isStatic) return notify("Read-only: use the manage workflow to toggle autonomous", "error");
+            if (isStatic)
+              return runCloud(async () => {
+                await cloud.setAutonomous(v);
+                notify(`Autonomous ${v ? "on" : "off"} submitted (applying ~1–2 min).`, "success");
+              });
             await api.setAutonomous(v); notify(`Autonomous ${v ? "on" : "off"}`, "success"); refresh();
           }}
         />
@@ -161,6 +226,13 @@ export default function App() {
           kind={fundsModal}
           onClose={() => setFundsModal(null)}
           onSubmit={handleFunds}
+        />
+      )}
+
+      {tokenModal && (
+        <TokenModal
+          onClose={() => setTokenModal(false)}
+          onSaved={onTokenSaved}
         />
       )}
 
