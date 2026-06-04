@@ -152,17 +152,13 @@ export default function App() {
           <button className="ghost" onClick={runNow} disabled={running}>
             {running ? "Running…" : "Run Agent Now"}
           </button>
-          {isStatic && (
-            <button className="ghost" onClick={() => setTokenModal(true)} title="Manage the GitHub key used to control the cloud agent">
-              {cloud.hasToken() ? "🔑 Key set" : "🔑 Connect key"}
-            </button>
-          )}
         </div>
       </div>
 
       {settings && (
         <SettingsBar
           settings={settings}
+          cloud={isStatic ? { hasKey: cloud.hasToken(), onKey: () => setTokenModal(true) } : null}
           onRisk={async (r) => {
             if (isStatic)
               return runCloud(async () => {

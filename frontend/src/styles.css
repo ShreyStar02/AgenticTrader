@@ -179,6 +179,10 @@ tr:last-child td { border-bottom: none; }
 
   .modal { width: 100%; max-width: 420px; margin: 0 12px; }
 
+  /* Settings bar: wrap its groups instead of overflowing */
+  .card .row.between { flex-wrap: wrap; gap: 10px; }
+  .card .row.between > .row { flex-wrap: wrap; }
+
   .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
 }
 
