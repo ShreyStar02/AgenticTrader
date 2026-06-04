@@ -84,6 +84,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // One-time cleanup of the obsolete read-state key (replaced by the watermark).
+    localStorage.removeItem("at_read_alert_ids");
     refresh();
     loadNews();
     const id = setInterval(refresh, 15000);
