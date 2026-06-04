@@ -16,14 +16,28 @@ from app.schemas import (
     AutonomousUpdate,
     FundEventOut,
     FundRequest,
+    ManualTradeRequest,
     PortfolioOut,
+    ResearchRequest,
     RiskProfileUpdate,
     SettingsOut,
     SignalOut,
     TradeOut,
     WalletOut,
+    WatchlistOut,
+    WatchlistRequest,
 )
-from app.services import alerts, market_data, news, portfolio, settings_store, wallet
+from app.services import (
+    alerts,
+    market_data,
+    news,
+    portfolio,
+    research,
+    settings_store,
+    trading,
+    wallet,
+    watchlist,
+)
 
 router = APIRouter()
 
@@ -105,6 +119,58 @@ def run_now(db: Session = Depends(get_db)):
     from app.agents.supervisor import run_cycle
 
     return run_cycle(db, force=True)
+
+
+# --------------------------- Research / Watchlist ---------------------------
+@router.post("/research")
+def research_symbol_ep(req: ResearchRequest, db: Session = Depends(get_db)):
+    result = research.research_symbol(db, req.symbol)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No market data found for '{req.symbol.upper()}'. Check the NSE symbol.",
+        )
+    return result
+
+
+@router.get("/watchlist", response_model=WatchlistOut)
+def get_watchlist_ep(db: Session = Depends(get_db)):
+    return WatchlistOut(symbols=watchlist.get_watchlist(db))
+
+
+@router.post("/watchlist/add", response_model=WatchlistOut)
+def watchlist_add_ep(req: WatchlistRequest, db: Session = Depends(get_db)):
+    symbols = watchlist.add_to_watchlist(db, req.symbol)
+    alerts.push_alert(db, f"Added {req.symbol.upper()} to watchlist",
+                      level="info", category="system")
+    return WatchlistOut(symbols=symbols)
+
+
+@router.post("/watchlist/remove", response_model=WatchlistOut)
+def watchlist_remove_ep(req: WatchlistRequest, db: Session = Depends(get_db)):
+    symbols = watchlist.remove_from_watchlist(db, req.symbol)
+    return WatchlistOut(symbols=symbols)
+
+
+# --------------------------- Manual trading ---------------------------
+@router.post("/trade/buy")
+def manual_buy_ep(req: ManualTradeRequest, db: Session = Depends(get_db)):
+    try:
+        return trading.manual_buy(db, req.symbol, req.qty, req.password)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/trade/sell")
+def manual_sell_ep(req: ManualTradeRequest, db: Session = Depends(get_db)):
+    try:
+        return trading.manual_sell(db, req.symbol, req.qty, req.password)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --------------------------- News ---------------------------

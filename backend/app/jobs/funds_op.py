@@ -43,6 +43,25 @@ def main(argv: list[str] | None = None) -> int:
     p_auto = sub.add_parser("set-autonomous")
     p_auto.add_argument("--value", required=True, choices=["true", "false"])
 
+    p_research = sub.add_parser("research")
+    p_research.add_argument("--symbol", required=True)
+
+    p_wl_add = sub.add_parser("watchlist-add")
+    p_wl_add.add_argument("--symbol", required=True)
+
+    p_wl_rm = sub.add_parser("watchlist-remove")
+    p_wl_rm.add_argument("--symbol", required=True)
+
+    p_buy = sub.add_parser("buy")
+    p_buy.add_argument("--symbol", required=True)
+    p_buy.add_argument("--amount", type=float, required=True, help="Quantity (whole shares)")
+    p_buy.add_argument("--password", required=True)
+
+    p_sell = sub.add_parser("sell")
+    p_sell.add_argument("--symbol", required=True)
+    p_sell.add_argument("--amount", type=float, required=True, help="Quantity (whole shares)")
+    p_sell.add_argument("--password", required=True)
+
     args = parser.parse_args(argv)
 
     bootstrap()
@@ -75,6 +94,52 @@ def main(argv: list[str] | None = None) -> int:
             alerts.push_alert(db, f"Autonomous trading {'enabled' if enabled else 'paused'}",
                               category="system")
             print(f"OK autonomous={enabled}")
+
+        elif args.op == "research":
+            from app.services import research
+
+            res = research.research_symbol(db, args.symbol)
+            if res is None:
+                print(f"ERROR: no data for {args.symbol}", file=sys.stderr)
+                return 3
+            alerts.push_alert(db, f"Research complete: {res['symbol']}",
+                              message=f"Score {res['score']:.2f} ({res['action']})",
+                              level="info", category="system")
+            print(f"OK research {res['symbol']} score={res['score']:.2f}")
+
+        elif args.op == "watchlist-add":
+            from app.services import watchlist
+
+            syms = watchlist.add_to_watchlist(db, args.symbol)
+            alerts.push_alert(db, f"Added {args.symbol.upper()} to watchlist",
+                              category="system")
+            print(f"OK watchlist-add. {len(syms)} symbols")
+
+        elif args.op == "watchlist-remove":
+            from app.services import watchlist
+
+            syms = watchlist.remove_from_watchlist(db, args.symbol)
+            print(f"OK watchlist-remove. {len(syms)} symbols")
+
+        elif args.op == "buy":
+            from app.services import trading
+
+            res = trading.manual_buy(db, args.symbol, int(args.amount), args.password)
+            alerts.push_alert(db, f"Manual buy: {res['symbol']} x{res['qty']}",
+                              message=f"@ {res['price']:.2f}", level="success",
+                              category="trade")
+            notify.send(f"🟢 Manual BUY {res['symbol']} x{res['qty']} @ ₹{res['price']:.2f}")
+            print(f"OK buy {res['symbol']} x{res['qty']} @ {res['price']:.2f}")
+
+        elif args.op == "sell":
+            from app.services import trading
+
+            res = trading.manual_sell(db, args.symbol, int(args.amount), args.password)
+            alerts.push_alert(db, f"Manual sell: {res['symbol']} x{res['qty']}",
+                              message=f"@ {res['price']:.2f}", level="info",
+                              category="trade")
+            notify.send(f"🔴 Manual SELL {res['symbol']} x{res['qty']} @ ₹{res['price']:.2f}")
+            print(f"OK sell {res['symbol']} x{res['qty']} @ {res['price']:.2f}")
 
         return 0
     except PermissionError as e:

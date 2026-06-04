@@ -30,7 +30,7 @@ from app.schemas import (
     TradeOut,
     WalletOut,
 )
-from app.services import alerts, market_data, news, portfolio, settings_store, wallet
+from app.services import alerts, market_data, news, portfolio, settings_store, wallet, watchlist
 
 log = get_logger("job.export")
 
@@ -80,6 +80,8 @@ def export(out_dir: str) -> None:
             scan_interval_minutes=settings.scan_interval_minutes,
             market_open=market_data.is_market_open(),
         ).model_dump())
+
+        _write(out, "watchlist.json", {"symbols": watchlist.get_watchlist(db)})
 
         try:
             news_items = news.fetch_market_news()[:30]

@@ -174,6 +174,10 @@ tr.clickable:hover td { background: var(--panel-2); }
   line-height: 1.5;
 }
 
+button.sm { padding: 4px 10px; font-size: 12px; }
+button.ghost.danger { background: transparent; color: #fca5a5; border-color: #7f1d1d; }
+input.grow { flex: 1 1 220px; min-width: 0; }
+
 .topbar .row { flex-wrap: wrap; justify-content: flex-end; }
 .topbar > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
 

@@ -15,7 +15,7 @@ function Stat({ label, value, cls }) {
   );
 }
 
-export default function SignalDetail({ signal, onBack }) {
+export default function SignalDetail({ signal, onBack, onBuy, onWatch }) {
   const d = signal.details || {};
   const chart = d.chart;
   const scoreCls = signal.score >= 0 ? "pos" : "neg";
@@ -41,6 +41,17 @@ export default function SignalDetail({ signal, onBack }) {
           </div>
         </div>
       </div>
+
+      {(onBuy || onWatch) && (
+        <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+          {onBuy && <button onClick={() => onBuy(signal.symbol)}>Buy {signal.symbol}</button>}
+          {onWatch && (
+            <button className="ghost" onClick={() => onWatch(signal.symbol)}>
+              + Add to watchlist
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>Price &amp; moving averages (6-month daily)</h3>

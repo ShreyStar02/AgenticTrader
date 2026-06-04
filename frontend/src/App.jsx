@@ -12,6 +12,11 @@ import SettingsBar from "./components/SettingsBar";
 import Briefing from "./components/Briefing";
 import NewsPanel from "./components/NewsPanel";
 import Trades from "./components/Trades";
+import Watchlist from "./components/Watchlist";
+import TradeModal from "./components/TradeModal";
+
+const RUN_COOLDOWN_S = 180; // Run Agent cooldown (matches ~workflow run time)
+const RUN_TS_KEY = "at_last_run_ts";
 
 export default function App() {
   const [portfolio, setPortfolio] = useState(null);
@@ -30,6 +35,10 @@ export default function App() {
   const [tab, setTab] = useState("signals");
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [selectedSignal, setSelectedSignal] = useState(null);
+  const [watchlist, setWatchlist] = useState([]);
+  const [tradeModal, setTradeModal] = useState(null); // {kind, symbol, lockSymbol} | null
+  const [researchBusy, setResearchBusy] = useState(false);
+  const [cooldown, setCooldown] = useState(0); // seconds remaining on Run Agent
 
   const notify = (message, type = "info") => {
     setToast({ message, type });
@@ -51,12 +60,13 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [p, w, a, s, r, t, st] = await Promise.all([
+      const [p, w, a, s, r, t, st, wl] = await Promise.all([
         api.portfolio(), api.wallet(), api.alerts(), api.signals(40),
-        api.runs(10), api.trades(), api.settings(),
+        api.runs(10), api.trades(), api.settings(), api.watchlist().catch(() => null),
       ]);
       setPortfolio(p); setWallet(w); setAlerts(applyLocalReads(a)); setSignals(s);
       setRuns(r); setTrades(t); setSettings(st);
+      if (wl && Array.isArray(wl.symbols)) setWatchlist(wl.symbols);
     } catch (e) {
       notify("Backend unreachable: " + e.message, "error");
     }
@@ -72,6 +82,21 @@ export default function App() {
     const id = setInterval(refresh, 15000);
     return () => clearInterval(id);
   }, [refresh, loadNews]);
+
+  // Run Agent cooldown: derive remaining seconds from a persisted timestamp so
+  // it survives reloads and blocks rapid repeat triggers.
+  useEffect(() => {
+    const tick = () => {
+      const ts = parseInt(localStorage.getItem(RUN_TS_KEY) || "0", 10);
+      const remain = ts ? Math.ceil((ts + RUN_COOLDOWN_S * 1000 - Date.now()) / 1000) : 0;
+      setCooldown(remain > 0 ? remain : 0);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const startCooldown = () => localStorage.setItem(RUN_TS_KEY, String(Date.now()));
 
   // In static (cloud) mode, writes are performed by dispatching GitHub Actions
   // workflows. If no token is saved yet, stash the action and prompt for one.
@@ -126,13 +151,16 @@ export default function App() {
   };
 
   const runNow = async () => {
+    if (cooldown > 0) return;
     if (isStatic) {
       return runCloud(async () => {
         await cloud.runAgent();
+        startCooldown();
         notify("Agent run queued via GitHub Actions (~1–2 min).", "success");
       });
     }
     setRunning(true);
+    startCooldown();
     notify("Running agent cycle… (fetching live data)", "info");
     try {
       const res = await api.runNow();
@@ -142,6 +170,78 @@ export default function App() {
       notify("Run failed: " + e.message, "error");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleResearch = async (symbol) => {
+    if (isStatic) {
+      return runCloud(async () => {
+        await cloud.research(symbol);
+        notify(`Researching ${symbol} via GitHub Actions (~1–2 min) — it'll appear in Signals.`, "success");
+      });
+    }
+    setResearchBusy(true);
+    notify(`Researching ${symbol}…`, "info");
+    try {
+      const sig = await api.research(symbol);
+      setSelectedSignal(sig);
+      notify(`Research complete: ${sig.symbol} (${sig.action})`, "success");
+    } catch (e) {
+      notify("Research failed: " + e.message, "error");
+    } finally {
+      setResearchBusy(false);
+    }
+  };
+
+  const handleWatchAdd = async (symbol) => {
+    if (isStatic) {
+      return runCloud(async () => {
+        await cloud.watchlistAdd(symbol);
+        notify(`Adding ${symbol} to watchlist (~1–2 min).`, "success");
+      });
+    }
+    try {
+      const wl = await api.watchlistAdd(symbol);
+      setWatchlist(wl.symbols);
+      notify(`Added ${symbol} to watchlist`, "success");
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  };
+
+  const handleWatchRemove = async (symbol) => {
+    if (isStatic) {
+      return runCloud(async () => {
+        await cloud.watchlistRemove(symbol);
+        notify(`Removing ${symbol} from watchlist (~1–2 min).`, "success");
+      });
+    }
+    try {
+      const wl = await api.watchlistRemove(symbol);
+      setWatchlist(wl.symbols);
+      notify(`Removed ${symbol} from watchlist`, "success");
+    } catch (e) {
+      notify(e.message, "error");
+    }
+  };
+
+  const handleTrade = async (kind, symbol, qty, password) => {
+    if (isStatic) {
+      return runCloud(async () => {
+        if (kind === "buy") await cloud.buy(symbol, qty, password);
+        else await cloud.sell(symbol, qty, password);
+        setTradeModal(null);
+        notify(`${kind === "buy" ? "Buy" : "Sell"} ${qty} ${symbol} submitted via GitHub Actions (~1–2 min).`, "success");
+      });
+    }
+    try {
+      if (kind === "buy") await api.buyStock(symbol, qty, password);
+      else await api.sellStock(symbol, qty, password);
+      setTradeModal(null);
+      notify(`${kind === "buy" ? "Bought" : "Sold"} ${qty} ${symbol}`, "success");
+      refresh();
+    } catch (e) {
+      notify(e.message, "error");
     }
   };
 
@@ -177,8 +277,11 @@ export default function App() {
         <div className="row">
           <button className="ghost" onClick={() => setFundsModal("withdraw")}>Withdraw</button>
           <button onClick={() => setFundsModal("add")}>+ Add Funds</button>
-          <button className="ghost" onClick={runNow} disabled={running}>
-            {running ? "Running…" : "Run Agent Now"}
+          <button className="ghost" onClick={() => setTradeModal({ kind: "buy", symbol: "", lockSymbol: false })}>
+            Buy Stock
+          </button>
+          <button className="ghost" onClick={runNow} disabled={running || cooldown > 0}>
+            {running ? "Running…" : cooldown > 0 ? `Run Agent (${cooldown}s)` : "Run Agent Now"}
           </button>
           <button
             className="ghost bell"
@@ -220,17 +323,26 @@ export default function App() {
       <StatCards portfolio={portfolio} wallet={wallet} />
 
       {selectedSignal ? (
-        <SignalDetail signal={selectedSignal} onBack={() => setSelectedSignal(null)} />
+        <SignalDetail
+          signal={selectedSignal}
+          onBack={() => setSelectedSignal(null)}
+          onBuy={(sym) => setTradeModal({ kind: "buy", symbol: sym, lockSymbol: true })}
+          onWatch={handleWatchAdd}
+        />
       ) : (
         <>
           <section className="overview">
             <h2 className="section-title">Overview</h2>
             {latestRun && <Briefing run={latestRun} />}
-            <Holdings portfolio={portfolio} />
+            <Holdings
+              portfolio={portfolio}
+              onBuy={(sym) => setTradeModal({ kind: "buy", symbol: sym, lockSymbol: true })}
+              onSell={(sym) => setTradeModal({ kind: "sell", symbol: sym, lockSymbol: true })}
+            />
           </section>
 
           <div className="tabs">
-            {["signals", "trades", "news"].map((t) => (
+            {["signals", "watchlist", "trades", "news"].map((t) => (
               <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
@@ -238,6 +350,16 @@ export default function App() {
           </div>
 
           {tab === "signals" && <Signals signals={signals} onSelect={setSelectedSignal} />}
+          {tab === "watchlist" && (
+            <Watchlist
+              symbols={watchlist}
+              busy={researchBusy}
+              isCloud={isStatic}
+              onResearch={handleResearch}
+              onAdd={handleWatchAdd}
+              onRemove={handleWatchRemove}
+            />
+          )}
           {tab === "trades" && <Trades trades={trades} />}
           {tab === "news" && <NewsPanel news={news} onRefresh={loadNews} />}
         </>
@@ -257,6 +379,17 @@ export default function App() {
           isCloud={isStatic}
           onClose={() => setFundsModal(null)}
           onSubmit={handleFunds}
+        />
+      )}
+
+      {tradeModal && (
+        <TradeModal
+          kind={tradeModal.kind}
+          symbol={tradeModal.symbol}
+          lockSymbol={tradeModal.lockSymbol}
+          isCloud={isStatic}
+          onClose={() => setTradeModal(null)}
+          onSubmit={handleTrade}
         />
       )}
 

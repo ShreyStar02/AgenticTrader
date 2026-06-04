@@ -19,7 +19,8 @@ from app.core.risk_profiles import get_risk_params
 from app.models import AgentRun, Signal, Trade
 from app.agents import regime_agent, risk_manager, analyst_agent
 from app.agents.strategy_agent import evaluate_symbol
-from app.services import alerts, market_data, portfolio, settings_store, wallet
+from app.core.universe import SECTOR_HINT
+from app.services import alerts, market_data, portfolio, settings_store, wallet, watchlist
 
 log = get_logger("agent.supervisor")
 
@@ -53,6 +54,17 @@ def run_cycle(db: Session, force: bool = False) -> dict:
 
         midset = set(NIFTY_NEXT_EXTRA)
         universe = [u for u in universe if u["symbol"] not in midset]
+
+    # Always include user-watchlisted symbols (even outside the profile universe).
+    wl = watchlist.get_watchlist(db)
+    if wl:
+        present = {u["symbol"] for u in universe}
+        extra = [
+            {"symbol": s, "sector": SECTOR_HINT.get(s)}
+            for s in wl if s not in present
+        ]
+        # Prepend so watchlist symbols are never dropped by the MAX_SCAN cap.
+        universe = extra + universe
 
     # ---- 1) Manage existing positions first (exits) ----
     held = {p.symbol for p in portfolio.list_positions(db)}

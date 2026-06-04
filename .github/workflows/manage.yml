@@ -14,12 +14,21 @@ on:
           - withdraw-funds
           - set-risk
           - set-autonomous
+          - research
+          - watchlist-add
+          - watchlist-remove
+          - buy
+          - sell
       amount:
-        description: "Amount in INR (for add/withdraw)"
+        description: "Amount in INR (add/withdraw) or quantity (buy/sell)"
         type: string
         default: "1000"
+      symbol:
+        description: "NSE symbol (research/watchlist/buy/sell), e.g. TCS"
+        type: string
+        default: ""
       password:
-        description: "System password (for add/withdraw)"
+        description: "System password (add/withdraw/buy/sell)"
         type: string
         default: ""
       value:
@@ -69,6 +78,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OP: ${{ inputs.operation }}
           AMOUNT: ${{ inputs.amount }}
+          SYMBOL: ${{ inputs.symbol }}
           PASSWORD: ${{ inputs.password }}
           VALUE: ${{ inputs.value }}
         run: |
@@ -81,6 +91,16 @@ jobs:
               python -m app.jobs.funds_op set-risk --value "$VALUE" ;;
             set-autonomous)
               python -m app.jobs.funds_op set-autonomous --value "$VALUE" ;;
+            research)
+              python -m app.jobs.funds_op research --symbol "$SYMBOL" ;;
+            watchlist-add)
+              python -m app.jobs.funds_op watchlist-add --symbol "$SYMBOL" ;;
+            watchlist-remove)
+              python -m app.jobs.funds_op watchlist-remove --symbol "$SYMBOL" ;;
+            buy)
+              python -m app.jobs.funds_op buy --symbol "$SYMBOL" --amount "$AMOUNT" --password "$PASSWORD" ;;
+            sell)
+              python -m app.jobs.funds_op sell --symbol "$SYMBOL" --amount "$AMOUNT" --password "$PASSWORD" ;;
             *)
               echo "Unknown operation: $OP"; exit 1 ;;
           esac

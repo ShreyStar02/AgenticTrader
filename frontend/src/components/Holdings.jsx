@@ -2,8 +2,9 @@ import React from "react";
 
 const fmt = (n) => "₹" + (n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
-export default function Holdings({ portfolio }) {
+export default function Holdings({ portfolio, onBuy, onSell }) {
   const holdings = portfolio?.holdings || [];
+  const actions = !!(onBuy || onSell);
   return (
     <div className="card">
       <h3>Holdings ({holdings.length})</h3>
@@ -17,6 +18,7 @@ export default function Holdings({ portfolio }) {
             <tr>
               <th>Symbol</th><th>Qty</th><th>Avg</th><th>LTP</th>
               <th>Value</th><th>P&amp;L</th><th>SL / TP</th>
+              {actions && <th style={{ textAlign: "right" }}>Trade</th>}
             </tr>
           </thead>
           <tbody>
@@ -34,6 +36,16 @@ export default function Holdings({ portfolio }) {
                 <td className="muted">
                   {h.stop_loss ? fmt(h.stop_loss) : "—"} / {h.take_profit ? fmt(h.take_profit) : "—"}
                 </td>
+                {actions && (
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {onBuy && (
+                      <button className="ghost sm" onClick={() => onBuy(h.symbol)}>Buy</button>
+                    )}{" "}
+                    {onSell && (
+                      <button className="ghost sm danger" onClick={() => onSell(h.symbol)}>Sell</button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

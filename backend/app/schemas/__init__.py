@@ -12,6 +12,24 @@ class FundRequest(BaseModel):
     note: str | None = None
 
 
+class ResearchRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=32)
+
+
+class WatchlistRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=32)
+
+
+class WatchlistOut(BaseModel):
+    symbols: list[str]
+
+
+class ManualTradeRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=32)
+    qty: int = Field(gt=0)
+    password: str
+
+
 class WalletOut(BaseModel):
     cash: float
     currency: str

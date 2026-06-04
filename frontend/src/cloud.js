@@ -69,4 +69,20 @@ export const cloud = {
   setRisk: (value) => dispatch("manage.yml", { operation: "set-risk", value }),
   setAutonomous: (value) => dispatch("manage.yml", { operation: "set-autonomous", value: String(value) }),
   runAgent: () => dispatch("trade.yml", { force: "true" }),
+  research: (symbol) =>
+    dispatch("manage.yml", { operation: "research", symbol: String(symbol).toUpperCase() }),
+  watchlistAdd: (symbol) =>
+    dispatch("manage.yml", { operation: "watchlist-add", symbol: String(symbol).toUpperCase() }),
+  watchlistRemove: (symbol) =>
+    dispatch("manage.yml", { operation: "watchlist-remove", symbol: String(symbol).toUpperCase() }),
+  buy: (symbol, qty, password) =>
+    dispatch("manage.yml", {
+      operation: "buy", symbol: String(symbol).toUpperCase(),
+      amount: String(qty), password: password || "",
+    }),
+  sell: (symbol, qty, password) =>
+    dispatch("manage.yml", {
+      operation: "sell", symbol: String(symbol).toUpperCase(),
+      amount: String(qty), password: password || "",
+    }),
 };

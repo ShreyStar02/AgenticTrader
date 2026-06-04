@@ -22,6 +22,7 @@ function staticFileFor(path) {
     "/news": "news.json",
     "/settings": "settings.json",
     "/funds/history": "funds_history.json",
+    "/watchlist": "watchlist.json",
     "/health": "meta.json",
   };
   return map[clean] || null;
@@ -84,4 +85,15 @@ export const api = {
     req("/settings/risk", { method: "PUT", body: JSON.stringify({ risk_profile }) }),
   setAutonomous: (enabled) =>
     req("/settings/autonomous", { method: "PUT", body: JSON.stringify({ enabled }) }),
+  research: (symbol) =>
+    req("/research", { method: "POST", body: JSON.stringify({ symbol }) }),
+  watchlist: () => req("/watchlist"),
+  watchlistAdd: (symbol) =>
+    req("/watchlist/add", { method: "POST", body: JSON.stringify({ symbol }) }),
+  watchlistRemove: (symbol) =>
+    req("/watchlist/remove", { method: "POST", body: JSON.stringify({ symbol }) }),
+  buyStock: (symbol, qty, password) =>
+    req("/trade/buy", { method: "POST", body: JSON.stringify({ symbol, qty, password }) }),
+  sellStock: (symbol, qty, password) =>
+    req("/trade/sell", { method: "POST", body: JSON.stringify({ symbol, qty, password }) }),
 };
