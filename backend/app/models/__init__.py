@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 from sqlalchemy import (
     Boolean,
@@ -188,6 +189,21 @@ class Signal(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
 
     run: Mapped["AgentRun | None"] = relationship(back_populates="signals")
+
+    @property
+    def details(self) -> dict:
+        """Parsed details_json (technicals + embedded chart series)."""
+        if not self.details_json:
+            return {}
+        try:
+            return json.loads(self.details_json)
+        except (ValueError, TypeError):
+            return {}
+
+    @property
+    def last_price(self) -> float | None:
+        v = self.details.get("last_price")
+        return float(v) if isinstance(v, (int, float)) else None
 
 
 class Alert(Base):

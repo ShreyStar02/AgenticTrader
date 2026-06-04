@@ -3,8 +3,9 @@ import { api, isStatic } from "./api";
 import { cloud } from "./cloud";
 import StatCards from "./components/StatCards";
 import Holdings from "./components/Holdings";
-import Alerts from "./components/Alerts";
+import AlertsDrawer, { badgeColorFor } from "./components/AlertsDrawer";
 import Signals from "./components/Signals";
+import SignalDetail from "./components/SignalDetail";
 import FundsModal from "./components/FundsModal";
 import TokenModal from "./components/TokenModal";
 import SettingsBar from "./components/SettingsBar";
@@ -26,11 +27,26 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState(null);
   const [toast, setToast] = useState(null);
   const [running, setRunning] = useState(false);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("signals");
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [selectedSignal, setSelectedSignal] = useState(null);
 
   const notify = (message, type = "info") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  // In static (cloud) mode, alert read-state can't be persisted server-side,
+  // so remember which alert IDs were read locally and re-apply after each fetch.
+  const READ_KEY = "at_read_alert_ids";
+  const readSet = () => {
+    try { return new Set(JSON.parse(localStorage.getItem(READ_KEY) || "[]")); }
+    catch (e) { return new Set(); }
+  };
+  const applyLocalReads = (list) => {
+    if (!isStatic) return list;
+    const seen = readSet();
+    return list.map((a) => (seen.has(a.id) ? { ...a, read: true } : a));
   };
 
   const refresh = useCallback(async () => {
@@ -39,7 +55,7 @@ export default function App() {
         api.portfolio(), api.wallet(), api.alerts(), api.signals(40),
         api.runs(10), api.trades(), api.settings(),
       ]);
-      setPortfolio(p); setWallet(w); setAlerts(a); setSignals(s);
+      setPortfolio(p); setWallet(w); setAlerts(applyLocalReads(a)); setSignals(s);
       setRuns(r); setTrades(t); setSettings(st);
     } catch (e) {
       notify("Backend unreachable: " + e.message, "error");
@@ -131,6 +147,18 @@ export default function App() {
 
   const latestRun = runs[0];
   const unread = alerts.filter((a) => !a.read).length;
+  const badgeColor = unread > 0 ? badgeColorFor(alerts.filter((a) => !a.read)) : null;
+
+  const markAllRead = async () => {
+    if (isStatic) {
+      const ids = alerts.map((a) => a.id);
+      localStorage.setItem(READ_KEY, JSON.stringify(ids));
+      setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
+      return;
+    }
+    await api.readAllAlerts();
+    refresh();
+  };
 
   return (
     <div className="app">
@@ -151,6 +179,17 @@ export default function App() {
           <button onClick={() => setFundsModal("add")}>+ Add Funds</button>
           <button className="ghost" onClick={runNow} disabled={running}>
             {running ? "Running…" : "Run Agent Now"}
+          </button>
+          <button
+            className="ghost bell"
+            onClick={() => setAlertsOpen(true)}
+            title="Alerts & notifications"
+            aria-label="Alerts"
+          >
+            🔔
+            {unread > 0 && (
+              <span className="bell-badge" style={{ background: badgeColor }}>{unread}</span>
+            )}
           </button>
         </div>
       </div>
@@ -180,40 +219,42 @@ export default function App() {
 
       <StatCards portfolio={portfolio} wallet={wallet} />
 
-      {latestRun && <Briefing run={latestRun} />}
+      {selectedSignal ? (
+        <SignalDetail signal={selectedSignal} onBack={() => setSelectedSignal(null)} />
+      ) : (
+        <>
+          <section className="overview">
+            <h2 className="section-title">Overview</h2>
+            {latestRun && <Briefing run={latestRun} />}
+            <Holdings portfolio={portfolio} />
+          </section>
 
-      <div className="tabs">
-        {["overview", "signals", "trades", "alerts", "news"].map((t) => (
-          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-            {t === "alerts" && unread > 0 ? `Alerts (${unread})` : t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+          <div className="tabs">
+            {["signals", "trades", "news"].map((t) => (
+              <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
 
-      {tab === "overview" && (
-        <div className="grid cols-2">
-          <Holdings portfolio={portfolio} />
-          <Alerts alerts={alerts} onRead={async () => { await api.readAllAlerts(); refresh(); }} />
-        </div>
+          {tab === "signals" && <Signals signals={signals} onSelect={setSelectedSignal} />}
+          {tab === "trades" && <Trades trades={trades} />}
+          {tab === "news" && <NewsPanel news={news} onRefresh={loadNews} />}
+        </>
       )}
-      {tab === "signals" && <Signals signals={signals} />}
-      {tab === "trades" && <Trades trades={trades} />}
-      {tab === "alerts" && (
-        <Alerts alerts={alerts} full onRead={async () => { await api.readAllAlerts(); refresh(); }} />
-      )}
-      {tab === "news" && <NewsPanel news={news} onRefresh={loadNews} />}
 
-      {isStatic && fundsModal && (
+      <AlertsDrawer
+        open={alertsOpen}
+        alerts={alerts}
+        unread={unread}
+        onClose={() => setAlertsOpen(false)}
+        onRead={markAllRead}
+      />
+
+      {fundsModal && (
         <FundsModal
           kind={fundsModal}
-          isCloud
-          onClose={() => setFundsModal(null)}
-          onSubmit={handleFunds}
-        />
-      )}
-      {!isStatic && fundsModal && (
-        <FundsModal
-          kind={fundsModal}
+          isCloud={isStatic}
           onClose={() => setFundsModal(null)}
           onSubmit={handleFunds}
         />

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pandas as pd
+
 from app.core.logging_config import get_logger
 from app.services import market_data, news
 from app.services.indicators import TechnicalResult, analyze
@@ -12,6 +14,34 @@ log = get_logger("agent.strategy")
 # Weights for the composite score.
 W_TECHNICAL = 0.7
 W_SENTIMENT = 0.3
+
+# How many trailing daily points to embed for the detail-view chart.
+CHART_POINTS = 130
+
+
+def _num(x) -> float | None:
+    return None if x is None or pd.isna(x) else round(float(x), 2)
+
+
+def build_chart_series(df: pd.DataFrame, points: int = CHART_POINTS) -> dict:
+    """Compact trailing OHLC/SMA/volume series for the signal detail chart."""
+    close = df["Close"].astype(float)
+    sma20 = close.rolling(20).mean()
+    sma50 = close.rolling(50).mean()
+    has_vol = "Volume" in df.columns
+    idx = df.index[-points:]
+
+    dates = [d.date().isoformat() if hasattr(d, "date") else str(d) for d in idx]
+    series = {
+        "dates": dates,
+        "close": [_num(v) for v in close.iloc[-points:]],
+        "sma20": [_num(v) for v in sma20.iloc[-points:]],
+        "sma50": [_num(v) for v in sma50.iloc[-points:]],
+    }
+    if has_vol:
+        vol = df["Volume"].astype(float).iloc[-points:]
+        series["volume"] = [None if pd.isna(v) else int(v) for v in vol]
+    return series
 
 
 @dataclass
@@ -63,12 +93,14 @@ def evaluate_symbol(
         last_price=tech.last_price,
         rationale=rationale,
         details={
+            "last_price": tech.last_price,
             "rsi": tech.rsi,
             "sma20": tech.sma20,
             "sma50": tech.sma50,
             "atr_pct": tech.atr_pct,
             "sector": sector,
             "news_count": news_count,
+            "chart": build_chart_series(df),
             **tech.details,
         },
     )

@@ -121,6 +121,41 @@ tr:last-child td { border-bottom: none; }
 .dot.on { background: var(--green); }
 .dot.off { background: var(--muted); }
 
+tr.clickable { cursor: pointer; transition: background .12s; }
+tr.clickable:hover td { background: var(--panel-2); }
+
+.section-title {
+  font-size: 13px; color: var(--muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 12px;
+}
+.overview { margin-bottom: 18px; }
+
+.bell { position: relative; }
+.bell-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 10px; font-size: 11px; font-weight: 700;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 70;
+}
+.drawer-overlay.show { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; height: 100%; width: 380px; max-width: 90vw;
+  background: var(--panel); border-left: 1px solid var(--border);
+  transform: translateX(100%); transition: transform .22s ease; z-index: 71;
+  display: flex; flex-direction: column; box-shadow: -8px 0 30px rgba(0,0,0,.4);
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px; border-bottom: 1px solid var(--border);
+}
+.drawer-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+
 .banner {
   background: #1d2735;
   border: 1px solid #2a3a52;

@@ -73,6 +73,8 @@ class SignalOut(BaseModel):
     trend: str | None
     action: str | None
     rationale: str | None
+    last_price: float | None = None
+    details: dict | None = None
     created_at: dt.datetime
 
     class Config:
