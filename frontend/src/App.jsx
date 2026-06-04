@@ -45,17 +45,21 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // In static (cloud) mode, alert read-state can't be persisted server-side,
-  // so remember which alert IDs were read locally and re-apply after each fetch.
-  const READ_KEY = "at_read_alert_ids";
-  const readSet = () => {
-    try { return new Set(JSON.parse(localStorage.getItem(READ_KEY) || "[]")); }
-    catch (e) { return new Set(); }
+  // In static (cloud) mode, alert read-state can't be persisted server-side.
+  // We track a monotonic "read-until" timestamp watermark: an alert counts as
+  // unread only if it's newer than the watermark. Marking all read advances the
+  // watermark to the newest alert, so it can only ever move forward — this
+  // avoids the oscillation a shrinking id-set caused.
+  const WM_KEY = "at_alerts_read_until";
+  const getWatermark = () => {
+    const v = parseInt(localStorage.getItem(WM_KEY) || "0", 10);
+    return Number.isFinite(v) ? v : 0;
   };
+  const tsOf = (a) => Date.parse((a.created_at || "") + "Z") || 0;
   const applyLocalReads = (list) => {
     if (!isStatic) return list;
-    const seen = readSet();
-    return list.map((a) => (seen.has(a.id) ? { ...a, read: true } : a));
+    const wm = getWatermark();
+    return list.map((a) => (tsOf(a) <= wm ? { ...a, read: true } : a));
   };
 
   // Only surface unread alerts; read ones drop off on the next refresh.
@@ -254,9 +258,10 @@ export default function App() {
 
   const markAllRead = async () => {
     if (isStatic) {
-      const ids = alerts.map((a) => a.id);
-      localStorage.setItem(READ_KEY, JSON.stringify(ids));
-      setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
+      // Advance the watermark to the newest alert currently shown (all unread).
+      const newest = alerts.reduce((m, a) => Math.max(m, tsOf(a)), getWatermark());
+      localStorage.setItem(WM_KEY, String(newest));
+      setAlerts([]);
       return;
     }
     await api.readAllAlerts();
