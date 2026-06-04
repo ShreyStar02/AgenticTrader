@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function FundsModal({ kind, onClose, onSubmit }) {
+export default function FundsModal({ kind, onClose, onSubmit, isCloud }) {
   const [amount, setAmount] = useState("");
   const [password, setPassword] = useState("");
   const isAdd = kind === "add";
@@ -39,6 +39,12 @@ export default function FundsModal({ kind, onClose, onSubmit }) {
         <div className="sub" style={{ marginTop: 10 }}>
           Paper money only. Default password: <code>trade123</code> (set via FUNDS_PASSWORD in .env).
         </div>
+        {isCloud && (
+          <div className="sub note" style={{ marginTop: 10 }}>
+            ☁️ Applied via GitHub Actions using your saved key — changes take
+            <b> ~1–2 minutes</b> to appear on the dashboard.
+          </div>
+        )}
       </form>
     </div>
   );

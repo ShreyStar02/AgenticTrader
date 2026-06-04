@@ -131,3 +131,59 @@ tr:last-child td { border-bottom: none; }
   font-size: 13px;
 }
 
+.sub.note {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
+.topbar .row { flex-wrap: wrap; justify-content: flex-end; }
+.topbar > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
+
+/* Tablet */
+@media (max-width: 900px) {
+  .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+}
+
+/* Phone */
+@media (max-width: 640px) {
+  .app { padding: 12px; }
+
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+  .topbar > div:first-child { justify-content: center; }
+  .topbar .row { justify-content: center; }
+  .topbar .row button { flex: 1 1 auto; min-width: 120px; }
+
+  .brand { font-size: 18px; }
+  .tag { margin-left: 6px; }
+
+  .grid.cols-4 { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .stat { font-size: 20px; }
+  .stat.small { font-size: 16px; }
+  .card { padding: 13px; }
+
+  /* Let wide tables scroll horizontally instead of overflowing the page */
+  .card table { display: block; width: 100%; overflow-x: auto; white-space: nowrap; }
+  th, td { padding: 7px 8px; }
+
+  .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .tabs button { flex: 0 0 auto; }
+
+  .modal { width: 100%; max-width: 420px; margin: 0 12px; }
+
+  .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+}
+
+/* Small phone: single-column stat cards */
+@media (max-width: 380px) {
+  .grid.cols-4 { grid-template-columns: 1fr; }
+}
+

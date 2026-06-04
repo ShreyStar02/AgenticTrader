@@ -160,20 +160,6 @@ export default function App() {
         </div>
       </div>
 
-      {isStatic && (
-        <div className="banner">
-          Live cloud dashboard — the agent runs automatically during market hours via
-          GitHub Actions. You can <b>add/withdraw funds</b> and <b>change settings</b> right
-          here; changes are applied through your GitHub key and take <b>~1–2 minutes</b> to
-          appear.{" "}
-          {!cloud.hasToken() && (
-            <a href="#" onClick={(e) => { e.preventDefault(); setTokenModal(true); }}>
-              Connect your GitHub key
-            </a>
-          )}
-        </div>
-      )}
-
       {settings && (
         <SettingsBar
           settings={settings}
@@ -221,7 +207,15 @@ export default function App() {
       )}
       {tab === "news" && <NewsPanel news={news} onRefresh={loadNews} />}
 
-      {fundsModal && (
+      {isStatic && fundsModal && (
+        <FundsModal
+          kind={fundsModal}
+          isCloud
+          onClose={() => setFundsModal(null)}
+          onSubmit={handleFunds}
+        />
+      )}
+      {!isStatic && fundsModal && (
         <FundsModal
           kind={fundsModal}
           onClose={() => setFundsModal(null)}
