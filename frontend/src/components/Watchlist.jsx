@@ -1,11 +1,18 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import Signals from "./Signals";
 
 // Watchlist tab: research a symbol on demand, add/remove symbols the agent
 // should always evaluate, and jump into a symbol's detail/research view.
 export default function Watchlist({
-  symbols = [], busy, isCloud, onResearch, onAdd, onRemove,
+  symbols = [], signals = [], busy, isCloud, onResearch, onAdd, onRemove, onSelectSignal,
 }) {
   const [input, setInput] = useState("");
+
+  const watchSet = useMemo(() => new Set(symbols.map((s) => s.toUpperCase())), [symbols]);
+  const watchSignals = useMemo(
+    () => signals.filter((s) => watchSet.has((s.symbol || "").toUpperCase())),
+    [signals, watchSet]
+  );
 
   const research = (e) => {
     e.preventDefault();
@@ -69,6 +76,22 @@ export default function Watchlist({
           </table>
         )}
       </div>
+
+      {symbols.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          {watchSignals.length > 0 ? (
+            <Signals signals={watchSignals} onSelect={onSelectSignal} />
+          ) : (
+            <div className="card">
+              <h3>Watchlist signals</h3>
+              <div className="muted" style={{ fontSize: 13 }}>
+                No signals yet for your watchlisted symbols. Hit <b>Research</b> on a symbol
+                above, or wait for the next agent scan — they'll appear here.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

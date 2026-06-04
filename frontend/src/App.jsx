@@ -363,11 +363,13 @@ export default function App() {
           {tab === "watchlist" && (
             <Watchlist
               symbols={watchlist}
+              signals={signals}
               busy={researchBusy}
               isCloud={isStatic}
               onResearch={handleResearch}
               onAdd={handleWatchAdd}
               onRemove={handleWatchRemove}
+              onSelectSignal={setSelectedSignal}
             />
           )}
           {tab === "trades" && <Trades trades={trades} />}
