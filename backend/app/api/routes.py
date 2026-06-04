@@ -104,9 +104,23 @@ def read_all_alerts(db: Session = Depends(get_db)):
 
 
 # --------------------------- Signals / Runs ---------------------------
+def _dedup_latest(rows):
+    """Keep only the most recent signal per symbol (rows must be newest-first)."""
+    seen, out = set(), []
+    for r in rows:
+        if r.symbol in seen:
+            continue
+        seen.add(r.symbol)
+        out.append(r)
+    return out
+
+
 @router.get("/signals", response_model=list[SignalOut])
 def get_signals(limit: int = 50, db: Session = Depends(get_db)):
-    return list(db.scalars(select(Signal).order_by(Signal.created_at.desc()).limit(limit)))
+    rows = db.scalars(
+        select(Signal).order_by(Signal.created_at.desc()).limit(max(limit * 5, 250))
+    )
+    return _dedup_latest(list(rows))[:limit]
 
 
 @router.get("/runs", response_model=list[AgentRunOut])

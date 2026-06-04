@@ -58,13 +58,16 @@ export default function App() {
     return list.map((a) => (seen.has(a.id) ? { ...a, read: true } : a));
   };
 
+  // Only surface unread alerts; read ones drop off on the next refresh.
+  const visibleAlerts = (list) => applyLocalReads(list).filter((a) => !a.read);
+
   const refresh = useCallback(async () => {
     try {
       const [p, w, a, s, r, t, st, wl] = await Promise.all([
         api.portfolio(), api.wallet(), api.alerts(), api.signals(40),
         api.runs(10), api.trades(), api.settings(), api.watchlist().catch(() => null),
       ]);
-      setPortfolio(p); setWallet(w); setAlerts(applyLocalReads(a)); setSignals(s);
+      setPortfolio(p); setWallet(w); setAlerts(visibleAlerts(a)); setSignals(s);
       setRuns(r); setTrades(t); setSettings(st);
       if (wl && Array.isArray(wl.symbols)) setWatchlist(wl.symbols);
     } catch (e) {

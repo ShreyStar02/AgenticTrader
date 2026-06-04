@@ -102,9 +102,9 @@ def main(argv: list[str] | None = None) -> int:
             if res is None:
                 print(f"ERROR: no data for {args.symbol}", file=sys.stderr)
                 return 3
-            alerts.push_alert(db, f"Research complete: {res['symbol']}",
-                              message=f"Score {res['score']:.2f} ({res['action']})",
-                              level="info", category="system")
+            alerts.push_alert(db, f"Research ready: {res['symbol']}",
+                              message=f"Score {res['score']:.2f} ({res['action']}). Open the Signals tab to view its chart & details.",
+                              level="success", category="system")
             print(f"OK research {res['symbol']} score={res['score']:.2f}")
 
         elif args.op == "watchlist-add":

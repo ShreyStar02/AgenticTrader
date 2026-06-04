@@ -63,8 +63,16 @@ def export(out_dir: str) -> None:
         alert_rows = alerts.list_alerts(db, limit=100)
         _write(out, "alerts.json", _dump_list(alert_rows, AlertOut))
 
-        signals = db.scalars(select(Signal).order_by(Signal.created_at.desc()).limit(50)).all()
-        _write(out, "signals.json", _dump_list(signals, SignalOut))
+        signals = db.scalars(
+            select(Signal).order_by(Signal.created_at.desc()).limit(300)
+        ).all()
+        seen, deduped = set(), []
+        for s in signals:
+            if s.symbol in seen:
+                continue
+            seen.add(s.symbol)
+            deduped.append(s)
+        _write(out, "signals.json", _dump_list(deduped[:60], SignalOut))
 
         runs = db.scalars(select(AgentRun).order_by(AgentRun.started_at.desc()).limit(20)).all()
         _write(out, "runs.json", _dump_list(runs, AgentRunOut))
