@@ -1,0 +1,63 @@
+name: heartbeat
+
+# Self-perpetuating pacer that triggers the 'trade' workflow every ~15 minutes
+# during NSE market hours — WITHOUT relying on GitHub's (unreliable, often
+# skipped) every-15-min cron. Each run dispatches one trading cycle, sleeps
+# ~14 min, then re-dispatches itself, forming a chain that lasts the trading day
+# and stops automatically outside market hours.
+#
+# Bootstrapping: a daily seed cron starts the chain near market open. Because we
+# only need ONE cron fire per day (delays/skips tolerated) instead of one every
+# 15 min, this is dramatically more reliable. It can also be started manually
+# from the Actions tab, and is re-seeded by the 'trade' workflow as a backup.
+
+on:
+    workflow_dispatch:
+    schedule:
+        # Seed near NSE open (~09:00 IST = 03:30 UTC), Mon-Fri. Off the top-of-hour
+        # to dodge peak-load throttling; multiple seeds add redundancy.
+        - cron: "32 3 * * 1-5"
+        - cron: "47 3 * * 1-5"
+        - cron: "7 4 * * 1-5"
+
+permissions:
+    actions: write
+
+# Keep only the newest pacer alive so seeds/re-arms never create parallel chains.
+concurrency:
+    group: agentictrader-heartbeat
+    cancel-in-progress: true
+
+jobs:
+    beat:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Trigger a cycle, pace, then re-arm
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # NSE trading window in UTC: Mon-Fri ~03:30-10:15 (09:00-15:45 IST).
+                  in_window() {
+                    local hhmm dow
+                    dow=$(date -u +%u)
+                    hhmm=$((10#$(date -u +%H%M)))
+                    [ "$dow" -le 5 ] && [ "$hhmm" -ge 330 ] && [ "$hhmm" -le 1015 ]
+                  }
+
+                  if ! in_window; then
+                    echo "Outside market window ($(date -u +'%H:%M UTC, %a')). Chain stops."
+                    exit 0
+                  fi
+
+                  echo "Dispatching a trading cycle…"
+                  gh workflow run trade.yml --repo "$GITHUB_REPOSITORY" -f force=false || true
+
+                  echo "Pacing ~14 min before next cycle…"
+                  sleep 840
+
+                  if in_window; then
+                    echo "Re-arming heartbeat for the next cycle."
+                    gh workflow run heartbeat.yml --repo "$GITHUB_REPOSITORY" || true
+                  else
+                    echo "Window closed during pacing; chain ends for today."
+                  fi

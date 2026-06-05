@@ -4,111 +4,113 @@ name: trade
 # Runs every 15 min during NSE market hours (UTC window covers ~09:00-15:30 IST),
 # Mon-Fri. Also runnable manually from the Actions tab.
 on:
-  schedule:
-    - cron: "*/15 3-10 * * 1-5"
-  workflow_dispatch:
-    inputs:
-      force:
-        description: "Run even if the market is closed"
-        type: boolean
-        default: false
+    schedule:
+        # Backup driver (the 'heartbeat' workflow is the primary, reliable one).
+        # Off the top-of-hour to reduce GitHub's peak-load schedule skipping.
+        - cron: "3,18,33,48 3-10 * * 1-5"
+    workflow_dispatch:
+        inputs:
+            force:
+                description: "Run even if the market is closed"
+                type: boolean
+                default: false
 
 permissions:
-  contents: write   # push paper-trading state to the 'state' branch
-  pages: write      # publish the dashboard
-  id-token: write
+    contents: write # push paper-trading state to the 'state' branch
+    pages: write # publish the dashboard
+    id-token: write
 
 # Serialize all runs (trade + manage) so they never race the state branch / Pages.
 concurrency:
-  group: agentictrader
-  cancel-in-progress: false
+    group: agentictrader
+    cancel-in-progress: false
 
 jobs:
-  run:
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
+    run:
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deploy.outputs.page_url }}
+        steps:
+            - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+                  cache: pip
+                  cache-dependency-path: backend/requirements.txt
 
-      - name: Install backend dependencies
-        working-directory: backend
-        run: pip install -r requirements.txt
+            - name: Install backend dependencies
+              working-directory: backend
+              run: pip install -r requirements.txt
 
-      - name: Restore trading state (DB)
-        run: |
-          mkdir -p backend/data
-          git fetch origin state || true
-          if git cat-file -e origin/state:agentictrader.db 2>/dev/null; then
-            git show origin/state:agentictrader.db > backend/data/agentictrader.db
-            echo "Restored DB from 'state' branch."
-          else
-            echo "No prior state found; starting fresh."
-          fi
+            - name: Restore trading state (DB)
+              run: |
+                  mkdir -p backend/data
+                  git fetch origin state || true
+                  if git cat-file -e origin/state:agentictrader.db 2>/dev/null; then
+                    git show origin/state:agentictrader.db > backend/data/agentictrader.db
+                    echo "Restored DB from 'state' branch."
+                  else
+                    echo "No prior state found; starting fresh."
+                  fi
 
-      - name: Run autonomous trading cycle
-        working-directory: backend
-        env:
-          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'nvidia' }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'meta/llama-3.1-8b-instruct' }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          HF_API_KEY: ${{ secrets.HF_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          INITIAL_FUNDS: ${{ vars.INITIAL_FUNDS || '1000' }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ "${{ inputs.force }}" = "true" ]; then
-            python -m app.jobs.run_once --force
-          else
-            python -m app.jobs.run_once
-          fi
+            - name: Run autonomous trading cycle
+              working-directory: backend
+              env:
+                  LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'nvidia' }}
+                  LLM_MODEL: ${{ vars.LLM_MODEL || 'meta/llama-3.1-8b-instruct' }}
+                  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+                  HF_API_KEY: ${{ secrets.HF_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  INITIAL_FUNDS: ${{ vars.INITIAL_FUNDS || '1000' }}
+                  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+                  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+              run: |
+                  if [ "${{ inputs.force }}" = "true" ]; then
+                    python -m app.jobs.run_once --force
+                  else
+                    python -m app.jobs.run_once
+                  fi
 
-      - name: Build dashboard (static)
-        working-directory: frontend
-        env:
-          VITE_STATIC: "1"
-          VITE_BASE: "/${{ github.event.repository.name }}/"
-        run: |
-          npm ci
-          npm run build
+            - name: Build dashboard (static)
+              working-directory: frontend
+              env:
+                  VITE_STATIC: "1"
+                  VITE_BASE: "/${{ github.event.repository.name }}/"
+              run: |
+                  npm ci
+                  npm run build
 
-      - name: Export dashboard snapshots
-        working-directory: backend
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: python -m app.jobs.export_snapshots --out ../frontend/dist/data
+            - name: Export dashboard snapshots
+              working-directory: backend
+              env:
+                  NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+              run: python -m app.jobs.export_snapshots --out ../frontend/dist/data
 
-      - name: Persist trading state (DB)
-        run: |
-          git config user.name "agentictrader-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git fetch origin state || true
-          if git show-ref --verify --quiet refs/remotes/origin/state; then
-            git worktree add /tmp/state origin/state
-            git -C /tmp/state checkout -B state
-          else
-            git worktree add --detach /tmp/state
-            git -C /tmp/state checkout --orphan state
-            git -C /tmp/state rm -rf . >/dev/null 2>&1 || true
-          fi
-          cp backend/data/agentictrader.db /tmp/state/agentictrader.db
-          git -C /tmp/state add agentictrader.db
-          git -C /tmp/state commit -m "state: update [skip ci]" || echo "No state change."
-          git -C /tmp/state push origin state
+            - name: Persist trading state (DB)
+              run: |
+                  git config user.name "agentictrader-bot"
+                  git config user.email "actions@users.noreply.github.com"
+                  git fetch origin state || true
+                  if git show-ref --verify --quiet refs/remotes/origin/state; then
+                    git worktree add /tmp/state origin/state
+                    git -C /tmp/state checkout -B state
+                  else
+                    git worktree add --detach /tmp/state
+                    git -C /tmp/state checkout --orphan state
+                    git -C /tmp/state rm -rf . >/dev/null 2>&1 || true
+                  fi
+                  cp backend/data/agentictrader.db /tmp/state/agentictrader.db
+                  git -C /tmp/state add agentictrader.db
+                  git -C /tmp/state commit -m "state: update [skip ci]" || echo "No state change."
+                  git -C /tmp/state push origin state
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: frontend/dist
+            - name: Upload Pages artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: frontend/dist
 
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+            - name: Deploy to GitHub Pages
+              id: deploy
+              uses: actions/deploy-pages@v4
