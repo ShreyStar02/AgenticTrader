@@ -9,7 +9,7 @@ name: heartbeat
 # Bootstrapping: a daily seed cron starts the chain near market open. Because we
 # only need ONE cron fire per day (delays/skips tolerated) instead of one every
 # 15 min, this is dramatically more reliable. It can also be started manually
-# from the Actions tab, and is re-seeded by the 'trade' workflow as a backup.
+# from the Actions tab.
 
 on:
     workflow_dispatch:
