@@ -108,8 +108,9 @@ def evaluate_symbol(
 
 # How much of the (bearish) regime bias to keep on intraday momentum trades.
 # We soften it rather than ignore it, so we stay cautious in risk-off markets
-# without being fully blocked the way swing entries are.
-INTRADAY_BIAS_WEIGHT = 0.5
+# without being fully blocked the way swing entries are. Intraday horizons are
+# short, so the daily regime should weigh lightly here.
+INTRADAY_BIAS_WEIGHT = 0.3
 INTRADAY_INTERVAL = "5m"
 INTRADAY_PERIOD = "5d"
 
