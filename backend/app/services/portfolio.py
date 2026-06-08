@@ -11,9 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Order, Position, Trade
+from app.models import FundEvent, Order, Position, Trade
 from app.services import alerts, wallet
-
 
 @dataclass
 class FillResult:
@@ -281,6 +280,16 @@ def portfolio_summary(db: Session, prices: dict[str, float] | None = None) -> di
     )
     equity = round(cash + market_value, 2)
     unrealized = round(sum(h["unrealized_pnl"] for h in holdings), 2)
+    # Realized P&L is derived from the accounting identity rather than summing
+    # per-trade values: equity = net_deposits + realized + unrealized. This stays
+    # exactly consistent with cash (it captures every fee/slippage, including
+    # entry-side brokerage) and can never drift from the wallet, unlike the raw
+    # sum of stored Trade.realized_pnl which historically omitted entry fees.
+    net_deposits = 0.0
+    for e in db.scalars(select(FundEvent)).all():
+        net_deposits += e.amount if e.kind == "deposit" else -e.amount
+    if net_deposits > 0:
+        realized = round(equity - net_deposits - unrealized, 2)
     return {
         "cash": round(cash, 2),
         "invested": round(invested, 2),
