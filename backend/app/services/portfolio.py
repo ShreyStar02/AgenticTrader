@@ -85,17 +85,20 @@ def buy(
     db.flush()
 
     pos = get_position(db, symbol)
+    # Fold brokerage into the cost basis so realized P&L over a full round-trip
+    # equals the true cash change (the buy fee is part of what the share cost us).
+    cost_per_share = total / qty
     if pos is None or pos.qty == 0:
         pos = pos or Position(symbol=symbol)
         pos.qty = qty
-        pos.avg_price = fill_price
+        pos.avg_price = round(cost_per_share, 4)
         pos.stop_loss = stop_loss
         pos.take_profit = take_profit
         pos.last_price = fill_price
         db.add(pos)
     else:
         new_qty = pos.qty + qty
-        pos.avg_price = round((pos.avg_price * pos.qty + fill_price * qty) / new_qty, 4)
+        pos.avg_price = round((pos.avg_price * pos.qty + total) / new_qty, 4)
         pos.qty = new_qty
         if stop_loss:
             pos.stop_loss = stop_loss
@@ -179,7 +182,9 @@ def short_sell(
 
     pos = pos or Position(symbol=symbol)
     pos.qty = -qty
-    pos.avg_price = fill_price
+    # Use the NET proceeds per share (after entry brokerage) as the cost basis so
+    # realized P&L on cover includes the short-entry fee and reconciles with cash.
+    pos.avg_price = round(net / qty, 4)
     pos.stop_loss = stop_loss
     pos.take_profit = take_profit
     pos.last_price = fill_price
