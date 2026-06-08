@@ -24,7 +24,12 @@ export default function Holdings({ portfolio, onBuy, onSell }) {
           <tbody>
             {holdings.map((h) => (
               <tr key={h.symbol}>
-                <td><b>{h.symbol}</b></td>
+                <td>
+                  <b>{h.symbol}</b>
+                  {h.side === "SHORT" && (
+                    <span className="sub" style={{ color: "#e0708a" }}> SHORT</span>
+                  )}
+                </td>
                 <td>{h.qty}</td>
                 <td>{fmt(h.avg_price)}</td>
                 <td>{fmt(h.last_price)}</td>

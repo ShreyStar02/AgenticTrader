@@ -31,6 +31,12 @@ MAX_SCAN = 25
 # (5m) data. Kept small so the extra network calls stay bounded.
 INTRADAY_SCAN = 10
 
+# Shorts are force-covered when this many (or fewer) minutes remain in the
+# session, i.e. always >=30 min before the 15:30 IST close. We refuse to OPEN a
+# new short inside a slightly wider window so there is time to cover cleanly.
+SHORT_FORCE_COVER_MIN = 35
+SHORT_NO_NEW_MIN = 45
+
 
 def _intraday_trades_today(db: Session) -> int:
     """Count intraday entries already taken today (across cycles) for the daily cap."""
@@ -43,6 +49,21 @@ def _intraday_trades_today(db: Session) -> int:
             Order.side == "BUY",
             Order.created_at >= start,
             Order.reason.like("[INTRADAY]%"),
+        )
+        .count()
+    )
+
+
+def _short_trades_today(db: Session) -> int:
+    """Count short entries opened today (across cycles) for the daily short cap."""
+    start = dt.datetime.now(dt.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return (
+        db.query(Order)
+        .filter(
+            Order.side == "SHORT",
+            Order.created_at >= start,
         )
         .count()
     )
@@ -87,6 +108,9 @@ def run_cycle(db: Session, force: bool = False) -> dict:
         universe = extra + universe
 
     # ---- 1) Manage existing positions first (exits) ----
+    # Minutes left in the session drives the mandatory same-day cover of shorts.
+    mtc = market_data.minutes_to_close()
+    force_cover = (mtc is None) or (mtc <= SHORT_FORCE_COVER_MIN)
     held = {p.symbol for p in portfolio.list_positions(db)}
     price_map: dict[str, float] = {}
 
@@ -95,6 +119,30 @@ def run_cycle(db: Session, force: bool = False) -> dict:
         last = sig.last_price if sig else (pos.last_price or pos.avg_price)
         score = sig.score if sig else 0.0
         price_map[pos.symbol] = last
+        if pos.qty < 0:
+            # Short position: cover on stop/target/reversal, or force-cover when we
+            # are within the mandatory same-day window (>=30 min before close).
+            isig = evaluate_symbol_intraday(pos.symbol, None, regime.bias)
+            iscore = isig.score if isig else score
+            if isig is not None:
+                last = isig.last_price
+                price_map[pos.symbol] = last
+            decision = risk_manager.evaluate_cover(
+                last, pos.avg_price, pos.stop_loss, pos.take_profit, iscore,
+                force=force_cover,
+            )
+            if decision.should_cover:
+                res = portfolio.cover(
+                    db, pos.symbol, abs(pos.qty), last,
+                    reason=f"[COVER] {decision.reason}",
+                )
+                if res.ok:
+                    actions += 1
+                    action_log.append(
+                        f"COVERED {abs(pos.qty)} {pos.symbol} ({decision.reason})"
+                    )
+            continue
+
         decision = risk_manager.evaluate_exit(
             last, pos.avg_price, pos.stop_loss, pos.take_profit, score
         )
@@ -148,7 +196,7 @@ def run_cycle(db: Session, force: bool = False) -> dict:
     if regime.risk_on:
         # ---- 3a) Normal swing entries on the best candidates, gated by risk ----
         for sig in scored:
-            cash = wallet.get_balance(db)
+            cash = wallet.get_balance(db) - portfolio.short_notional(db)
             open_positions = len(portfolio.list_positions(db))
             decision = risk_manager.evaluate_buy(
                 db, sig.symbol, sig.last_price, sig.score, rp,
@@ -179,7 +227,7 @@ def run_cycle(db: Session, force: bool = False) -> dict:
             if isig is None:
                 continue
             price_map[isig.symbol] = isig.last_price
-            cash = wallet.get_balance(db)
+            cash = wallet.get_balance(db) - portfolio.short_notional(db)
             open_positions = len(portfolio.list_positions(db))
             decision = risk_manager.evaluate_buy_intraday(
                 db, isig.symbol, isig.last_price, isig.score, sig.technical_score, rp,
@@ -198,6 +246,44 @@ def run_cycle(db: Session, force: bool = False) -> dict:
                     action_log.append(
                         f"INTRADAY BOUGHT {decision.qty} {isig.symbol} @ ₹{isig.last_price:.2f}"
                     )
+
+        # ---- 3c) Risk-off: selective intraday SHORTS (sell-then-buy). Only the
+        # weakest names with confirmed downside momentum, small size, tight stop.
+        # Every short is force-covered >=30 min before the close (handled in the
+        # exit loop), so there is never overnight short risk. We also refuse to
+        # open shorts too close to that cover window.
+        if rp.short_enabled and mtc is not None and mtc > SHORT_NO_NEW_MIN:
+            short_trades_today = _short_trades_today(db)
+            shorts_ranked = sorted(scored, key=lambda s: s.score)
+            for sig in shorts_ranked[:INTRADAY_SCAN]:
+                if sig.score > -0.05:
+                    break  # ranked ascending: nothing left negative enough to short
+                isig = evaluate_symbol_intraday(
+                    sig.symbol, sig.details.get("sector"), regime.bias
+                )
+                if isig is None:
+                    continue
+                price_map[isig.symbol] = isig.last_price
+                cash = wallet.get_balance(db) - portfolio.short_notional(db)
+                open_positions = len(portfolio.list_positions(db))
+                decision = risk_manager.evaluate_short(
+                    db, isig.symbol, isig.last_price, isig.score, sig.technical_score, rp,
+                    equity=equity, available_cash=cash, open_positions=open_positions,
+                    short_trades_today=short_trades_today, minutes_to_close=mtc,
+                    no_new_minutes=SHORT_NO_NEW_MIN,
+                )
+                if decision.approved:
+                    res = portfolio.short_sell(
+                        db, isig.symbol, decision.qty, isig.last_price,
+                        reason=f"[SHORT] {isig.rationale} | {decision.reason}",
+                        stop_loss=decision.stop_loss, take_profit=decision.take_profit,
+                    )
+                    if res.ok:
+                        actions += 1
+                        short_trades_today += 1
+                        action_log.append(
+                            f"SHORTED {decision.qty} {isig.symbol} @ ₹{isig.last_price:.2f}"
+                        )
 
     portfolio.mark_to_market(db, price_map)
 

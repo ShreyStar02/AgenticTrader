@@ -24,6 +24,17 @@ class RiskParams:
     intraday_stop_loss_pct: float = 0.015
     intraday_take_profit_pct: float = 0.025
     intraday_max_alloc_pct: float = 0.10  # smaller per-position size than swing
+    # --- Intraday short selling (sell-then-buy, mandatory same-day cover) ---
+    # Only taken when momentum is strongly DOWN and the daily trend confirms it.
+    # Every short is force-covered >=30 min before the close, so there is never
+    # overnight short risk. Sizing is small and stops are tight to keep any loss
+    # rare and shallow.
+    short_enabled: bool = False
+    short_min_score: float = 0.25         # require intraday score <= -this
+    short_max_trades: int = 0             # per-day cap on short entries
+    short_stop_loss_pct: float = 0.015    # cover if price rises this far (loss)
+    short_take_profit_pct: float = 0.030  # cover if price falls this far (profit)
+    short_max_alloc_pct: float = 0.10     # small notional per short
 
 
 PROFILES: dict[str, RiskParams] = {
@@ -49,6 +60,9 @@ PROFILES: dict[str, RiskParams] = {
         intraday_enabled=True, intraday_min_score=0.18, intraday_max_trades=4,
         intraday_stop_loss_pct=0.015, intraday_take_profit_pct=0.030,
         intraday_max_alloc_pct=0.15,
+        short_enabled=True, short_min_score=0.18, short_max_trades=3,
+        short_stop_loss_pct=0.015, short_take_profit_pct=0.030,
+        short_max_alloc_pct=0.10,
     ),
 }
 

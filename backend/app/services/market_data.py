@@ -79,3 +79,20 @@ def is_market_open(now: dt.datetime | None = None) -> bool:
     start = now.replace(hour=9, minute=15, second=0, microsecond=0)
     end = now.replace(hour=15, minute=30, second=0, microsecond=0)
     return start <= now <= end
+
+
+def minutes_to_close(now: dt.datetime | None = None) -> int | None:
+    """Whole minutes remaining until the NSE close (15:30 IST).
+
+    Returns None when the market is closed (weekend, before open, or after
+    close). Used to enforce the mandatory same-day cover of short positions.
+    """
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    now = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ist)
+    if now.weekday() >= 5:
+        return None
+    start = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    end = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    if now < start or now > end:
+        return None
+    return int((end - now).total_seconds() // 60)
