@@ -37,6 +37,10 @@ jobs:
             - name: Trigger a cycle, pace, then re-arm
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # Pace between cycles, in MINUTES. Configure via repo variable
+                  # SCAN_INTERVAL_MINUTES (Settings -> Secrets and variables ->
+                  # Actions -> Variables). Mirrors backend/.env SCAN_INTERVAL_MINUTES.
+                  SCAN_INTERVAL_MINUTES: ${{ vars.SCAN_INTERVAL_MINUTES || '5' }}
               run: |
                   # NSE trading window in UTC: Mon-Fri ~03:30-10:15 (09:00-15:45 IST).
                   in_window() {
@@ -54,8 +58,17 @@ jobs:
                   echo "Dispatching a trading cycle…"
                   gh workflow run trade.yml --repo "$GITHUB_REPOSITORY" -f force=false || true
 
-                  echo "Pacing ~5 min before next cycle…"
-                  sleep 300
+                  # Convert the configured minutes into seconds (fallback to 5 min
+                  # if the variable is missing or not a positive integer).
+                  mins="${SCAN_INTERVAL_MINUTES:-5}"
+                  case "$mins" in
+                    ''|*[!0-9]*) mins=5 ;;
+                  esac
+                  [ "$mins" -lt 1 ] && mins=5
+                  sleep_seconds=$(( mins * 60 ))
+
+                  echo "Pacing ~${mins} min (${sleep_seconds}s) before next cycle…"
+                  sleep "$sleep_seconds"
 
                   if in_window; then
                     echo "Re-arming heartbeat for the next cycle."
