@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.core.logging_config import get_logger
 from app.core.risk_profiles import get_risk_params
-from app.models import AgentRun, Signal, Trade
+from app.models import AgentRun, Order, Signal, Trade
 from app.agents import regime_agent, risk_manager, analyst_agent
-from app.agents.strategy_agent import evaluate_symbol
+from app.agents.strategy_agent import evaluate_symbol, evaluate_symbol_intraday
 from app.core.universe import SECTOR_HINT
 from app.services import alerts, market_data, portfolio, settings_store, wallet, watchlist
 
@@ -26,6 +26,26 @@ log = get_logger("agent.supervisor")
 
 # Cap how many symbols we deeply analyze per run to keep latency/news calls bounded.
 MAX_SCAN = 25
+
+# In risk-off regimes, re-check only the strongest swing candidates with intraday
+# (5m) data. Kept small so the extra network calls stay bounded.
+INTRADAY_SCAN = 10
+
+
+def _intraday_trades_today(db: Session) -> int:
+    """Count intraday entries already taken today (across cycles) for the daily cap."""
+    start = dt.datetime.now(dt.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return (
+        db.query(Order)
+        .filter(
+            Order.side == "BUY",
+            Order.created_at >= start,
+            Order.reason.like("[INTRADAY]%"),
+        )
+        .count()
+    )
 
 
 def run_cycle(db: Session, force: bool = False) -> dict:
@@ -125,26 +145,59 @@ def run_cycle(db: Session, force: bool = False) -> dict:
             level="warning", category="risk",
         )
 
-    for sig in scored:
-        if not regime.risk_on:
-            break
-        cash = wallet.get_balance(db)
-        open_positions = len(portfolio.list_positions(db))
-        decision = risk_manager.evaluate_buy(
-            db, sig.symbol, sig.last_price, sig.score, rp,
-            equity=equity, cash=cash, open_positions=open_positions,
-            trades_today=trades_today,
-        )
-        if decision.approved:
-            res = portfolio.buy(
-                db, sig.symbol, decision.qty, sig.last_price,
-                reason=f"{sig.rationale} | {decision.reason}",
-                stop_loss=decision.stop_loss, take_profit=decision.take_profit,
+    if regime.risk_on:
+        # ---- 3a) Normal swing entries on the best candidates, gated by risk ----
+        for sig in scored:
+            cash = wallet.get_balance(db)
+            open_positions = len(portfolio.list_positions(db))
+            decision = risk_manager.evaluate_buy(
+                db, sig.symbol, sig.last_price, sig.score, rp,
+                equity=equity, cash=cash, open_positions=open_positions,
+                trades_today=trades_today,
             )
-            if res.ok:
-                actions += 1
-                trades_today += 1
-                action_log.append(f"BOUGHT {decision.qty} {sig.symbol} @ ₹{sig.last_price:.2f}")
+            if decision.approved:
+                res = portfolio.buy(
+                    db, sig.symbol, decision.qty, sig.last_price,
+                    reason=f"{sig.rationale} | {decision.reason}",
+                    stop_loss=decision.stop_loss, take_profit=decision.take_profit,
+                )
+                if res.ok:
+                    actions += 1
+                    trades_today += 1
+                    action_log.append(f"BOUGHT {decision.qty} {sig.symbol} @ ₹{sig.last_price:.2f}")
+    elif rp.intraday_enabled:
+        # ---- 3b) Risk-off: skip slow swing entries, but allow a few highly
+        # selective intraday (5m) momentum trades with tight stops. This keeps the
+        # agent active in a bearish/volatile tape without taking overnight/trend
+        # risk -- the strict gate (high score bar, no daily downtrends, small size)
+        # keeps it from being random.
+        intraday_trades_today = _intraday_trades_today(db)
+        for sig in scored[:INTRADAY_SCAN]:
+            isig = evaluate_symbol_intraday(
+                sig.symbol, sig.details.get("sector"), regime.bias
+            )
+            if isig is None:
+                continue
+            price_map[isig.symbol] = isig.last_price
+            cash = wallet.get_balance(db)
+            open_positions = len(portfolio.list_positions(db))
+            decision = risk_manager.evaluate_buy_intraday(
+                db, isig.symbol, isig.last_price, isig.score, sig.technical_score, rp,
+                equity=equity, cash=cash, open_positions=open_positions,
+                intraday_trades_today=intraday_trades_today,
+            )
+            if decision.approved:
+                res = portfolio.buy(
+                    db, isig.symbol, decision.qty, isig.last_price,
+                    reason=f"[INTRADAY] {isig.rationale} | {decision.reason}",
+                    stop_loss=decision.stop_loss, take_profit=decision.take_profit,
+                )
+                if res.ok:
+                    actions += 1
+                    intraday_trades_today += 1
+                    action_log.append(
+                        f"INTRADAY BOUGHT {decision.qty} {isig.symbol} @ ₹{isig.last_price:.2f}"
+                    )
 
     portfolio.mark_to_market(db, price_map)
 

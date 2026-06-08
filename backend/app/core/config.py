@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     funds_password: str = "trade123"
 
     # Trading universe / scheduler
-    scan_interval_minutes: int = 15
+    scan_interval_minutes: int = 5
     autonomous_enabled: bool = True
 
     # Paper execution assumptions
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     slippage_pct: float = 0.0010  # 0.10% adverse slippage
 
     # Default starting risk profile
-    default_risk_profile: str = "moderate"
+    default_risk_profile: str = "aggressive"
 
     # --- Data fetch / SSL ---
     # Path to a CA bundle (PEM). If the file exists it is used for verification

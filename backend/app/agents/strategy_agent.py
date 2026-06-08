@@ -104,3 +104,57 @@ def evaluate_symbol(
             **tech.details,
         },
     )
+
+
+# How much of the (bearish) regime bias to keep on intraday momentum trades.
+# We soften it rather than ignore it, so we stay cautious in risk-off markets
+# without being fully blocked the way swing entries are.
+INTRADAY_BIAS_WEIGHT = 0.5
+INTRADAY_INTERVAL = "5m"
+INTRADAY_PERIOD = "5d"
+
+
+def evaluate_symbol_intraday(
+    symbol: str, sector: str | None, regime_bias: float
+) -> StrategySignal | None:
+    """Momentum-only signal from 5-minute candles, for risk-off intraday trades.
+
+    News sentiment is intentionally excluded (too slow for an intraday horizon);
+    the entry is driven purely by short-term technical momentum and gated hard by
+    the risk manager (higher score bar, tight stops, small size).
+    """
+    df = market_data.fetch_history(
+        symbol, period=INTRADAY_PERIOD, interval=INTRADAY_INTERVAL
+    )
+    tech: TechnicalResult | None = analyze(symbol, df)
+    if tech is None:
+        return None
+
+    softened_bias = INTRADAY_BIAS_WEIGHT * regime_bias
+    composite = max(-1.0, min(1.0, tech.score + softened_bias))
+
+    rationale = (
+        f"INTRADAY 5m technical {tech.score:+.2f} ({tech.rationale}); "
+        f"softened regime bias {softened_bias:+.2f}"
+    )
+
+    return StrategySignal(
+        symbol=symbol,
+        score=round(composite, 4),
+        technical_score=tech.score,
+        sentiment_score=0.0,
+        trend=tech.trend,
+        last_price=tech.last_price,
+        rationale=rationale,
+        details={
+            "last_price": tech.last_price,
+            "rsi": tech.rsi,
+            "sma20": tech.sma20,
+            "sma50": tech.sma50,
+            "atr_pct": tech.atr_pct,
+            "sector": sector,
+            "intraday": True,
+            "interval": INTRADAY_INTERVAL,
+            **tech.details,
+        },
+    )

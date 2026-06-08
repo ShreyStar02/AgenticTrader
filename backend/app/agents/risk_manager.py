@@ -65,6 +65,65 @@ def evaluate_buy(
     return BuyDecision(True, qty, reason, stop_loss, take_profit)
 
 
+def evaluate_buy_intraday(
+    db: Session,
+    symbol: str,
+    price: float,
+    intraday_score: float,
+    daily_score: float,
+    rp: RiskParams,
+    equity: float,
+    cash: float,
+    open_positions: int,
+    intraday_trades_today: int,
+) -> BuyDecision:
+    """Strict gate for a risk-off intraday momentum entry.
+
+    Deliberately conservative so trades are selective, not random: it requires a
+    high intraday conviction score, refuses names already in a daily downtrend
+    (no catching falling knives), uses a smaller position size and a tight stop so
+    the worst-case loss per trade is small.
+    """
+    if not rp.intraday_enabled:
+        return BuyDecision(False, 0, "intraday trading disabled for this profile")
+
+    if intraday_score < rp.intraday_min_score:
+        return BuyDecision(
+            False, 0,
+            f"intraday score {intraday_score:.2f} < bar {rp.intraday_min_score:.2f}",
+        )
+
+    # Don't fight the daily trend: skip anything clearly trending down on the day.
+    if daily_score < -0.10:
+        return BuyDecision(False, 0, f"daily trend too weak ({daily_score:.2f})")
+
+    if open_positions >= rp.max_positions:
+        return BuyDecision(False, 0, f"max positions reached ({rp.max_positions})")
+
+    if intraday_trades_today >= rp.intraday_max_trades:
+        return BuyDecision(False, 0, f"intraday trade cap reached ({rp.intraday_max_trades})")
+
+    if portfolio.get_position(db, symbol):
+        return BuyDecision(False, 0, "already holding this symbol")
+
+    investable = cash - equity * rp.cash_buffer_pct
+    if investable <= price:
+        return BuyDecision(False, 0, "insufficient investable cash after buffer")
+
+    max_alloc_value = min(investable, equity * rp.intraday_max_alloc_pct)
+    qty = portfolio.affordable_qty(max_alloc_value, price)
+    if qty < 1:
+        return BuyDecision(False, 0, f"cannot afford 1 whole share within intraday cap (₹{price:.2f})")
+
+    stop_loss = round(price * (1 - rp.intraday_stop_loss_pct), 2)
+    take_profit = round(price * (1 + rp.intraday_take_profit_pct), 2)
+    reason = (
+        f"intraday qty {qty} (alloc≤{rp.intraday_max_alloc_pct*100:.0f}% equity, "
+        f"SL {rp.intraday_stop_loss_pct*100:.1f}%, TP {rp.intraday_take_profit_pct*100:.1f}%)"
+    )
+    return BuyDecision(True, qty, reason, stop_loss, take_profit)
+
+
 @dataclass
 class SellDecision:
     should_sell: bool
