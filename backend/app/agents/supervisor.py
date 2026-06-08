@@ -24,8 +24,11 @@ from app.services import alerts, market_data, portfolio, settings_store, wallet,
 
 log = get_logger("agent.supervisor")
 
-# Cap how many symbols we deeply analyze per run to keep latency/news calls bounded.
-MAX_SCAN = 25
+# Cap how many profile-universe symbols we deeply analyze per run. Set to 75 so
+# the entire aggressive universe (NIFTY 50 + ~22 midcaps) is scanned every cycle.
+# User-watchlisted symbols are added ON TOP of this cap (see below), so they never
+# displace a universe name.
+MAX_SCAN = 75
 
 # In risk-off regimes, re-check only the strongest swing candidates with intraday
 # (5m) data. Kept small so the extra network calls stay bounded.
@@ -98,12 +101,14 @@ def run_cycle(db: Session, force: bool = False) -> dict:
 
     # Always include user-watchlisted symbols (even outside the profile universe).
     wl = watchlist.get_watchlist(db)
+    wl_extra = 0
     if wl:
         present = {u["symbol"] for u in universe}
         extra = [
             {"symbol": s, "sector": SECTOR_HINT.get(s)}
             for s in wl if s not in present
         ]
+        wl_extra = len(extra)
         # Prepend so watchlist symbols are never dropped by the MAX_SCAN cap.
         universe = extra + universe
 
@@ -153,7 +158,9 @@ def run_cycle(db: Session, force: bool = False) -> dict:
                 action_log.append(f"SOLD {pos.qty} {pos.symbol} ({decision.reason})")
 
     # ---- 2) Scan universe for new opportunities ----
-    candidates = [u for u in universe if u["symbol"] not in held][:MAX_SCAN]
+    # Cap applies to the profile universe; watchlist extras (prepended) are added
+    # on top so the full NIFTY 50 plus every watchlist symbol is always scanned.
+    candidates = [u for u in universe if u["symbol"] not in held][: MAX_SCAN + wl_extra]
     scored: list = []
     for u in candidates:
         sig = evaluate_symbol(u["symbol"], u.get("sector"), regime.bias, with_news=True)
