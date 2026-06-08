@@ -1,9 +1,9 @@
 name: heartbeat
 
-# Self-perpetuating pacer that triggers the 'trade' workflow every ~15 minutes
+# Self-perpetuating pacer that triggers the 'trade' workflow every ~5 minutes
 # during NSE market hours — WITHOUT relying on GitHub's (unreliable, often
-# skipped) every-15-min cron. Each run dispatches one trading cycle, sleeps
-# ~14 min, then re-dispatches itself, forming a chain that lasts the trading day
+# skipped) every-5-min cron. Each run dispatches one trading cycle, sleeps
+# ~5 min, then re-dispatches itself, forming a chain that lasts the trading day
 # and stops automatically outside market hours.
 #
 # Bootstrapping: a daily seed cron starts the chain near market open. Because we
@@ -54,8 +54,8 @@ jobs:
                   echo "Dispatching a trading cycle…"
                   gh workflow run trade.yml --repo "$GITHUB_REPOSITORY" -f force=false || true
 
-                  echo "Pacing ~14 min before next cycle…"
-                  sleep 840
+                  echo "Pacing ~5 min before next cycle…"
+                  sleep 300
 
                   if in_window; then
                     echo "Re-arming heartbeat for the next cycle."

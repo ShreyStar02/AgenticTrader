@@ -1,13 +1,14 @@
 name: trade
 
 # Autonomous trading cycle + dashboard publish.
-# Runs every 15 min during NSE market hours (UTC window covers ~09:00-15:30 IST),
+# Runs every 5 min during NSE market hours (UTC window covers ~09:00-15:30 IST),
 # Mon-Fri. Also runnable manually from the Actions tab.
 on:
     schedule:
         # Backup driver (the 'heartbeat' workflow is the primary, reliable one).
-        # Off the top-of-hour to reduce GitHub's peak-load schedule skipping.
-        - cron: "3,18,33,48 3-10 * * 1-5"
+        # Every 5 minutes during the market window; GitHub may skip some fires
+        # under load, but the heartbeat pacer is the dependable driver.
+        - cron: "*/5 3-10 * * 1-5"
     workflow_dispatch:
         inputs:
             force:
