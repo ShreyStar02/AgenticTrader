@@ -91,41 +91,43 @@ jobs:
 
             - name: Compact and cap DB size
               run: |
-                python - <<'PY'
-                import os
-                import sqlite3
+                  python - <<'PY'
+                  import os
+                  import sqlite3
 
-                db_path = "backend/data/agentictrader.db"
-                if not os.path.exists(db_path):
-                  raise SystemExit(f"Missing DB at {db_path}")
+                  db_path = "backend/data/agentictrader.db"
+                  if not os.path.exists(db_path):
+                    raise SystemExit(f"Missing DB at {db_path}")
 
-                con = sqlite3.connect(db_path)
-                cur = con.cursor()
+                  con = sqlite3.connect(db_path)
+                  cur = con.cursor()
 
-                # Keep the state branch lightweight: retain recent operational history
-                # and trim high-churn tables before VACUUM.
-                cur.execute("DELETE FROM signals WHERE created_at < datetime('now', '-30 day')")
-                cur.execute("DELETE FROM agent_runs WHERE started_at < datetime('now', '-30 day')")
-                cur.execute("DELETE FROM news_items WHERE COALESCE(published_at, fetched_at) < datetime('now', '-14 day')")
-                cur.execute("DELETE FROM alerts WHERE created_at < datetime('now', '-30 day')")
-                cur.execute("DELETE FROM audit_logs WHERE created_at < datetime('now', '-30 day')")
-                cur.execute("DELETE FROM price_bars WHERE date < datetime('now', '-365 day')")
-                con.commit()
+                  # Keep the state branch lightweight: hard-cap high-churn tables.
+                  # Signals are the biggest table (details_json includes chart payloads).
+                  cur.execute("DELETE FROM signals WHERE id NOT IN (SELECT id FROM signals ORDER BY created_at DESC LIMIT 400)")
+                  cur.execute("DELETE FROM agent_runs WHERE id NOT IN (SELECT id FROM agent_runs ORDER BY started_at DESC LIMIT 120)")
+                  cur.execute("DELETE FROM trades WHERE id NOT IN (SELECT id FROM trades ORDER BY created_at DESC LIMIT 400)")
+                  cur.execute("DELETE FROM fund_events WHERE id NOT IN (SELECT id FROM fund_events ORDER BY created_at DESC LIMIT 200)")
+                  cur.execute("DELETE FROM news_items WHERE id NOT IN (SELECT id FROM news_items ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT 300)")
+                  cur.execute("DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY created_at DESC LIMIT 300)")
+                  cur.execute("DELETE FROM audit_logs WHERE id NOT IN (SELECT id FROM audit_logs ORDER BY created_at DESC LIMIT 400)")
+                  cur.execute("DELETE FROM price_bars WHERE id NOT IN (SELECT id FROM price_bars ORDER BY date DESC LIMIT 25000)")
+                  con.commit()
 
-                # Reclaim file space after deletions.
-                cur.execute("VACUUM")
-                con.close()
+                  # Reclaim file space after deletions.
+                  cur.execute("VACUUM")
+                  con.close()
 
-                size_mb = os.path.getsize(db_path) / (1024 * 1024)
-                print(f"DB size after compaction: {size_mb:.2f} MB")
+                  size_mb = os.path.getsize(db_path) / (1024 * 1024)
+                  print(f"DB size after compaction: {size_mb:.2f} MB")
 
-                # Leave headroom below GitHub's hard 100MB file limit.
-                if size_mb >= 95:
-                  raise SystemExit(
-                    "Database remains too large for state branch push "
-                    f"({size_mb:.2f} MB >= 95 MB safety threshold)."
-                  )
-                PY
+                  # Leave headroom below GitHub's hard 100MB file limit.
+                  if size_mb >= 95:
+                    raise SystemExit(
+                      "Database remains too large for state branch push "
+                      f"({size_mb:.2f} MB >= 95 MB safety threshold)."
+                    )
+                  PY
 
             - name: Persist trading state (DB)
               run: |
